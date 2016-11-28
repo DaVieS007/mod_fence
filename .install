@@ -1,0 +1,7 @@
+a2dismod mod_fence
+make clean
+make install
+
+cp mod_fence.load /etc/apache2/mods-available/mod_fence.load
+a2enmod mod_fence
+make clean
