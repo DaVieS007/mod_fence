@@ -193,7 +193,7 @@ static int fence_post_read_request(request_rec *r) {
                 {
                     if(ps_record->pid > 0)
                     {
-                        kill(ps_record->pid, SIGTERM);
+                        kill(ps_record->pid, SIGKILL);
                     }
                 }
 
