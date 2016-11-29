@@ -40,6 +40,8 @@
 #include "scoreboard.h"
 #include "http_log.h"
 
+#define VERSION "mod_fence/0.2a"
+
 #if APR_HAVE_UNISTD_H
 #include <unistd.h>
 #endif
@@ -57,6 +59,7 @@ APR_DECLARE_OPTIONAL_FN(int, ssl_is_https, (conn_rec *));
 typedef struct {
     int                enable;
     int                timeout;
+    int                maxreqs;
 } fence_server_cfg;
 
 typedef struct {
@@ -64,7 +67,21 @@ typedef struct {
     request_rec *r;
 } fence_cleanup_rec;
 
-static void *fence_create_server_cfg(apr_pool_t *p, server_rec *s) {
+
+/** INIT_HANDLER **/
+static int init_handler(apr_pool_t * pconf, apr_pool_t * plog, apr_pool_t * ptemp, server_rec * s)
+{
+    ap_log_error(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, 0, s, "Loading version %s.", VERSION);
+    ap_add_version_component(pconf, VERSION);
+
+    return OK;
+}
+/** INIT_HANDLER **/
+
+
+/** FENCE_CREATE_SERVER_CFG **/
+static void *fence_create_server_cfg(apr_pool_t *p, server_rec *s) 
+{
     fence_server_cfg *cfg = (fence_server_cfg *)apr_pcalloc(p, sizeof(fence_server_cfg));
     if (!cfg)
     {
@@ -73,10 +90,15 @@ static void *fence_create_server_cfg(apr_pool_t *p, server_rec *s) {
 
     cfg->enable = 0;
     cfg->timeout = 0;
+    cfg->maxreqs = 0;
 
     return (void *)cfg;
 }
-static const char *fence_enable(cmd_parms *cmd, void *dummy, int flag) {
+/** FENCE_CREATE_SERVER_CFG **/
+
+/** FENCE_ENABLE **/
+static const char *fence_enable(cmd_parms *cmd, void *dummy, int flag) 
+{
     server_rec *s = cmd->server;
     fence_server_cfg *cfg = (fence_server_cfg *)ap_get_module_config(s->module_config,
                                                                    &fence_module);
@@ -84,9 +106,25 @@ static const char *fence_enable(cmd_parms *cmd, void *dummy, int flag) {
     cfg->enable = flag;
     return NULL;
 }
+/** FENCE_ENABLE **/
+
+/** FENCE_SETMAXREQS **/
+static const char *fence_setmaxreqs(cmd_parms *cmd, void *dummy, const char *arg)
+{
+    server_rec *s = cmd->server;
+    fence_server_cfg *cfg = (fence_server_cfg *)ap_get_module_config(s->module_config,
+                                                                   &fence_module);
+
+    cfg->maxreqs = atoi(arg);
+    return NULL;
+
+}
+/** FENCE_SETMAXREQS **/
 
 
-static const char *fence_settimeout(cmd_parms *cmd, void *dummy, const char *arg) {
+/** FENCE_SETTIMTEOUT **/
+static const char *fence_settimeout(cmd_parms *cmd, void *dummy, const char *arg) 
+{
     server_rec *s = cmd->server;
     fence_server_cfg *cfg = (fence_server_cfg *)ap_get_module_config(s->module_config,
                                                                    &fence_module);
@@ -94,9 +132,11 @@ static const char *fence_settimeout(cmd_parms *cmd, void *dummy, const char *arg
     cfg->timeout = atoi(arg);
     return NULL;
 }
+/** FENCE_SETTIMTEOUT **/
 
-
-static int fence_post_read_request(request_rec *r) {
+/** FENCE_POST_READ_REQUEST **/
+static int fence_post_read_request(request_rec *r) 
+{
     char *fwdvalue, *val, *mask, *last_val;
     int i, j;
     apr_port_t tmpport;
@@ -110,9 +150,11 @@ static int fence_post_read_request(request_rec *r) {
 
     static int server_limit, thread_limit, threads_per_child, max_servers,
            is_async;
+    
     static pid_t child_pid;
     worker_score *ws_record = apr_palloc(r->pool, sizeof *ws_record);
     process_score *ps_record;
+    int online_procs = 0;
 
     pid_t *pid_buffer, worker_pid;
     char *stat_buffer;
@@ -158,9 +200,28 @@ static int fence_post_read_request(request_rec *r) {
                 ps_record = ap_get_scoreboard_process(i);
 
 
+                if(cfg->maxreqs && !strcmp(ws_record->client, r->DEF_IP) && ( ws_record->status == SERVER_BUSY_READ || ws_record->status == SERVER_BUSY_WRITE || ws_record->status == SERVER_GRACEFUL))
+                {
+                    online_procs++;
+                }
+
+                /**
+                    ap_rprintf(r,
+                               " <i>%s {%s}</i> <i>(%s)</i> <b>[%s]</b><br />\n\n",
+                               ap_escape_html(r->pool,
+                                              ws_record->client),
+                               ap_escape_html(r->pool,
+                                              ap_escape_logitem(r->pool,
+                                                                ws_record->request)),
+                               ap_escape_html(r->pool,
+                                              ws_record->protocol),
+                               ap_escape_html(r->pool,
+                                              ws_record->vhost));
+                **/
+
+
                 /** UNUSED FROM MOD_STATUS **/
                 /*
-
                 if (ws_record->start_time == 0L)
                     req_time = 0L;
                 else
@@ -193,6 +254,7 @@ static int fence_post_read_request(request_rec *r) {
                 {
                     if(ps_record->pid > 0)
                     {
+                        ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_NOTICE, 0, r, "Killing Stucked Child: %d", ps_record->pid);
                         kill(ps_record->pid, SIGKILL);
                     }
                 }
@@ -200,8 +262,37 @@ static int fence_post_read_request(request_rec *r) {
             } 
         }
 
+        if(online_procs > cfg->maxreqs)
+        {
+          /*
+          ap_set_content_type(r, "text/html");
+          char error_page[] = "<html><head>" \
+          "<meta name='robots' content='NOINDEX, NOFOLLOW'>" \
+          "</meta><title>mod_fence / Request Terminated</title>" \
+          "</head>" \
+          "<body style='margin: 20px; padding: 20px; color: #333;'>" \
+          "<h1>Your request terminated due to <b>Denial Of Service</b> Prevention.</h1>" \
+          "<br /><br />" \
+          "You are requested more than %i parallel requests that is seems non-usual activity.<br /><br />" \
+          "In any other case please contact with the server or website owner / administartor.<br /><br />%s" \
+          "</body></html>";
+
+          char temp[4096];
+          temp[0] = 0x00;
+          */
+
+          ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_WARNING, 0, r, "Denial Of Service Mitigation Triggered: %d", online_procs);
+
+          sprintf(temp,error_page,cfg->maxreqs,r->server->server_admin);
+          ap_rputs(temp, r);
+          return 503;
+
+        }
+
+
     return DECLINED;
 }
+/** FENCE_POST_READ_REQUEST **/
 
 static const command_rec fence_cmds[] = {
     AP_INIT_FLAG(
@@ -218,12 +309,21 @@ static const command_rec fence_cmds[] = {
                  RSRC_CONF,
                  "Declare the Child Timeout"
                  ),
+    AP_INIT_TAKE1(
+                 "Fence_MaxRequests",
+                 fence_setmaxreqs,
+                 NULL,
+                 RSRC_CONF,
+                 ""
+                 ),
     { NULL }
 };
 
 
-static void fence_register_hooks(apr_pool_t *p) {
-    ap_hook_post_read_request(fence_post_read_request, NULL, NULL, APR_HOOK_FIRST);
+static void fence_register_hooks(apr_pool_t *p) 
+{
+    ap_hook_post_config(init_handler, NULL, NULL, APR_HOOK_MIDDLE);
+    ap_hook_post_read_request(fence_post_read_request, NULL, NULL, APR_HOOK_MIDDLE);
 }
 
 module AP_MODULE_DECLARE_DATA fence_module = {
