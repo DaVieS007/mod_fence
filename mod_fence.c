@@ -279,12 +279,13 @@ static int fence_post_read_request(request_rec *r)
 
           char temp[4096];
           temp[0] = 0x00;
+
+          sprintf(temp,error_page,cfg->maxreqs,r->server->server_admin);
+          ap_rputs(temp, r);
           */
 
           ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_WARNING, 0, r, "Denial Of Service Mitigation Triggered: %d", online_procs);
 
-          sprintf(temp,error_page,cfg->maxreqs,r->server->server_admin);
-          ap_rputs(temp, r);
           return 503;
 
         }
