@@ -54,7 +54,7 @@
 #include "scoreboard.h"
 #include "http_log.h"
 
-#define VERSION "mod_fence/0.9b"
+#define VERSION "mod_fence/0.9.2b"
 
 #if APR_HAVE_UNISTD_H
 #include <unistd.h>
@@ -398,10 +398,9 @@ static int fence_post_read_request(request_rec *r)
                     apr_rfc822_date(datebuff, ws_record->last_used);
 
                     ap_rputs("<tr>",r);
-                    ap_rprintf(r, "<td>%s</td> <td>%s</td> <td>%s</td> <td>%s</td>\n",
+                    ap_rprintf(r, "<td>%s</td> <td>%s</td> <td><b>BUSY</b></td> <td>%s</td>\n",
                     datebuff,
                     ap_escape_html(r->pool,ws_record->client),
-                    ap_escape_html(r->pool,ws_record->vhost),
                     ap_escape_html(r->pool,ap_escape_logitem(r->pool,ws_record->request)));
 
                     ap_rputs("</tr>",r);
