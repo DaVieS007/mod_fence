@@ -169,7 +169,7 @@ char is_hostname_valid(const char *hostname)
   char ret = 1, found = 0;
   size_t i, i2, len, len2;
 
-  char allowed_chars[] = "QWERTZUIOPASDFGHJKLYXCVBNMqwertzuiopasdfghjklyxcvbnm-_.0123456789:";
+  char allowed_chars[] = "QWERTZUIOPASDFGHJKLYXCVBNMqwertzuiopasdfghjklyxcvbnm-_.0123456789:[]";
 
   len = strlen(hostname);
   len2 = strlen(allowed_chars);
