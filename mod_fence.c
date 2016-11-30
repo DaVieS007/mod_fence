@@ -419,10 +419,10 @@ static int fence_post_read_request(request_rec *r)
 
         ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_WARNING, 0, r, "[mod_fence] Mitigation Triggered, dropping request.");
 
+	r->status = 200;
         ap_finalize_request_protocol(r);
-        r->output_filters = r->proto_output_filters;
-        r->status = 200;
-        apr_hook_deregister_all(); //DONT PASS THIS REQUEST TOWARDS
+//        r->output_filters = r->proto_output_filters;
+//        apr_hook_deregister_all(); //DONT PASS THIS REQUEST TOWARDS
 
         return HTTP_NO_CONTENT;
     }
