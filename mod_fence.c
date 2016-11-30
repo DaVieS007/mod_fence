@@ -422,9 +422,10 @@ static int fence_post_read_request(request_rec *r)
 
         ap_finalize_request_protocol(r);
         r->output_filters = r->proto_output_filters;
+        r->status = 200;
         apr_hook_deregister_all(); //DONT PASS THIS REQUEST TOWARDS
 
-        return OK;
+        return HTTP_NO_CONTENT;
     }
     /** MITIGATE **/
 
