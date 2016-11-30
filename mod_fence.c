@@ -401,7 +401,7 @@ static int fence_post_read_request(request_rec *r)
                     ap_rprintf(r, "<td>%s</td> <td>%s</td> <td>%s</td> <td>%s</td>\n",
                     datebuff,
                     ap_escape_html(r->pool,ws_record->client),
-                    ap_escape_html(r->pool,r->hostname),
+                    ap_escape_html(r->pool,ws_record->vhost),
                     ap_escape_html(r->pool,ap_escape_logitem(r->pool,ws_record->request)));
 
                     ap_rputs("</tr>",r);
