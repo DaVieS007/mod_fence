@@ -21,7 +21,7 @@
 - [x] Tested on industrial usage, nearly 12 different servers
 - [x] Working together any modules
 - [x] Its filter a real processes that apache could not serve in a second
-- [x] We could not overload the server however we did with any other solutions
+- [x] We could not overload the server with this mod installed however we did with any other solutions
 
 ## History:
 - **Known PHP Bug is apache's children get stucked while PHP indefinitely try to access session file via FLOCK(...) that simply causes a lot of headache for me**
