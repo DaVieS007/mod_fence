@@ -1,5 +1,5 @@
 # mod_fence
-## Version: 0.9b (beta)
+## Version: 1.0 (release)
 
 #### Primary Tasks:
 **This module has only one primary task to covering apache with additional fences to protect against:**
@@ -10,14 +10,25 @@
 - [x] PHP/Session FLOCK() de-stucking, yes its destuck apache modules!
 
 #### ** Currently Tested on Apache2.4 MPM_ITK / MPM_PREFORK **
-##### Main advantage is very lightweight and uses Apache Core Libs.
 
+## Advantages:
+- [x] Very Lightweight
+- [x] Easy to use, does not need any precalculations like: maximum request/sec, burst and limit.
+- [x] Works like a charm
+- [x] Gives a better frontend on case of limitation
+- [x] Cares about stucked problem
+- [x] Ideal for Large webservers as small too
+- [x] Tested on industrial usage, nearly 12 different servers
+- [x] Working together any modules
+- [x] Its filter a real processes that apache could not serve in a second
+- [x] We could not overload the server however we did with any other solutions
 
 ## History:
 - **Known PHP Bug is apache's children get stucked while PHP indefinitely try to access session file via FLOCK(...) that simply causes a lot of headache for me**
 - **Continuously pressing F5 on website which is under heavy load is a lamer things and must be avoid**
 - **On shared hosting slow or mysql (write_lock) stucked websites able to denial the service**
 - **There is a method to kill the apache with connections from ADSL with small packets and does not need to flood**
+- **We did not found any exists defense that totaly care about these problems: nginx, mod_evasive (did not work as expected)**
 
 ## Configuration
 

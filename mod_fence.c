@@ -54,7 +54,7 @@
 #include "scoreboard.h"
 #include "http_log.h"
 
-#define VERSION "mod_fence/0.9.2b"
+#define VERSION "mod_fence/1.0r"
 
 #if APR_HAVE_UNISTD_H
 #include <unistd.h>
