@@ -52,6 +52,7 @@
 #include "util_script.h"
 #include <time.h>
 #include "http_log.h"
+#include "scoreboard.h"
 
 #define VERSION "mod_fence/1.2r"
 
