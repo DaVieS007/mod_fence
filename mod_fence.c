@@ -75,6 +75,7 @@ typedef struct {
     int                timeout;
     int                softReqs;
     int                hardReqs;
+   	int 			   delayURI;
 } fence_server_cfg;
 
 typedef struct {
@@ -107,6 +108,7 @@ static void *fence_create_server_cfg(apr_pool_t *p, server_rec *s)
     cfg->timeout = 0;
     cfg->softReqs = 0;
     cfg->hardReqs = 0;
+    cfg->delayURI = 0;
 
     return (void *)cfg;
 }
@@ -123,6 +125,21 @@ static const char *fence_enable(cmd_parms *cmd, void *dummy, int flag)
     return NULL;
 }
 /** FENCE_ENABLE **/
+
+
+
+
+/** FENCE_SETBALANCEBYURI **/
+static const char *fence_setBalanceByURI(cmd_parms *cmd, void *dummy, const char *arg)
+{
+    server_rec *s = cmd->server;
+    fence_server_cfg *cfg = (fence_server_cfg *)ap_get_module_config(s->module_config,
+                                                                   &fence_module);
+
+    cfg->delayURI = atoi(arg);
+    return NULL;
+}
+/** FENCE_SETBALANCEBYURI **/
 
 /** FENCE_SETSOFTREQS **/
 static const char *fence_setSoftReqs(cmd_parms *cmd, void *dummy, const char *arg)
@@ -259,6 +276,13 @@ static int fence_post_read_request(request_rec *r)
         return DECLINED;
     }
 
+    size_t buff_len;
+    int array_ptr = 0;
+    char *host_array_idx[4096];
+    int host_array_values[4096];
+    int array_found;
+
+
     if(!is_hostname_valid(r->hostname))
     {
         ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_WARNING, 0, r, "[mod_fence] Invalid Hostname: %s",r->hostname);
@@ -280,7 +304,35 @@ static int fence_post_read_request(request_rec *r)
 
             ps_record = ap_get_scoreboard_process(i);
 
-/*              Filter or not to be? - this is the question..
+            /** VHOST MITIGATION **/
+            array_found = 0;
+            for(int cc=0;cc<array_ptr;cc++)
+            {
+            	if(!strcmp(host_array_idx[cc],ws_record->vhost))
+            	{
+            		array_found = cc;
+            		break;
+            	}
+            }
+
+            if(array_found)
+            {
+            	host_array_values[array_found]++;
+            }
+            else
+            {
+	            buff_len = strlen(ws_record->vhost);
+	            host_array_idx[array_ptr] = (char*)malloc(buff_len) + 1;
+            	host_array_values[array_ptr] = 1;
+	            memcpy(host_array_idx,ws_record->vhost,buff_len);
+	            host_array_idx[buff_len] = 0x00;
+	            array_ptr++;
+            }
+
+            /** VHOST MITIGATION **/
+
+
+/*          Filter or not to be? - this is the question..
             if(!strcmp(r->DEF_IP,"127.0.0.1"))
             {
                 continue; //DONT FILTER LOCALHOST
@@ -296,39 +348,6 @@ static int fence_post_read_request(request_rec *r)
                 hard_slot_used++;
             }
 
-            /**
-                ap_rprintf(r,
-                           " <i>%s {%s}</i> <i>(%s)</i> <b>[%s]</b><br />\n\n",
-                           ap_escape_html(r->pool,
-                                          ws_record->client),
-                           ap_escape_html(r->pool,
-                                          ap_escape_logitem(r->pool,
-                                                            ws_record->request)),
-                           ap_escape_html(r->pool,
-                                          ws_record->protocol),
-                           ap_escape_html(r->pool,
-                                          ws_record->vhost));
-            **/
-
-
-            /** UNUSED FROM MOD_STATUS **/
-            /*
-            if (ws_record->start_time == 0L)
-                req_time = 0L;
-            else
-                req_time = (long)
-                    ((ws_record->stop_time - ws_record->start_time) / 1000);
-            if (req_time < 0L)
-                req_time = 0L;
-
-            lres = ws_record->access_count;
-            my_lres = ws_record->my_access_count;
-            conn_lres = ws_record->conn_count;
-            bytes = ws_record->bytes_served;
-            my_bytes = ws_record->my_bytes_served;
-            conn_bytes = ws_record->conn_bytes;
-            */
-            /** UNUSED FROM MOD_STATUS **/
 
             if (ws_record->pid) 
             { /* MPM sets per-worker pid and generation */
@@ -458,6 +477,13 @@ static const command_rec fence_cmds[] = {
     AP_INIT_TAKE1(
                  "Fence_MitigateHardRequests",
                  fence_setHardReqs,
+                 NULL,
+                 RSRC_CONF,
+                 ""
+                 ),
+    AP_INIT_TAKE1(
+                 "Fence_BalanceByURI",
+                 fence_setBalanceByURI,
                  NULL,
                  RSRC_CONF,
                  ""
