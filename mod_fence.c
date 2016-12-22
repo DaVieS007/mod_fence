@@ -51,10 +51,9 @@
 #include "ap_mpm.h"
 #include "util_script.h"
 #include <time.h>
-#include "scoreboard.h"
 #include "http_log.h"
 
-#define VERSION "mod_fence/1.0r"
+#define VERSION "mod_fence/1.2r"
 
 #if APR_HAVE_UNISTD_H
 #include <unistd.h>
@@ -70,12 +69,52 @@
 module AP_MODULE_DECLARE_DATA fence_module;
 APR_DECLARE_OPTIONAL_FN(int, ssl_is_https, (conn_rec *));
 
+/** COPY_REQUEST::FROM SCOREBOARD.C **/
+static void copy_request(char *rbuf, apr_size_t rbuflen, request_rec *r)
+{
+    char *p;
+
+    if (r->the_request == NULL) {
+        apr_cpystrn(rbuf, "NULL", rbuflen);
+        return; /* short circuit below */
+    }
+
+    if (r->parsed_uri.password == NULL) {
+        p = r->the_request;
+    }
+    else {
+        /* Don't reveal the password in the server-status view */
+        p = apr_pstrcat(r->pool, r->method, " ",
+                        apr_uri_unparse(r->pool, &r->parsed_uri,
+                        APR_URI_UNP_OMITPASSWORD),
+                        r->assbackwards ? NULL : " ", r->protocol, NULL);
+    }
+
+    /* now figure out if we copy over the 1st rbuflen chars or the last */
+    if (!ap_mod_status_reqtail) {
+        apr_cpystrn(rbuf, p, rbuflen);
+    }
+    else {
+        apr_size_t slen = strlen(p);
+        if (slen < rbuflen) {
+            /* it all fits anyway */
+            apr_cpystrn(rbuf, p, rbuflen);
+        }
+        else {
+            apr_cpystrn(rbuf, p+(slen-rbuflen+1), rbuflen);
+        }
+    }
+}
+/** COPY_REQUEST::FROM SCOREBOARD.C **/
+
 typedef struct {
     int                enable;
     int                timeout;
     int                softReqs;
     int                hardReqs;
-   	int 			   delayURI;
+    int                vhostLimit;
+    int                vhostUriLimit;
+    int                delaysec;
 } fence_server_cfg;
 
 typedef struct {
@@ -108,7 +147,9 @@ static void *fence_create_server_cfg(apr_pool_t *p, server_rec *s)
     cfg->timeout = 0;
     cfg->softReqs = 0;
     cfg->hardReqs = 0;
-    cfg->delayURI = 0;
+    cfg->vhostLimit = 0;
+    cfg->vhostUriLimit = 0;
+    cfg->delaysec = 60;
 
     return (void *)cfg;
 }
@@ -126,21 +167,6 @@ static const char *fence_enable(cmd_parms *cmd, void *dummy, int flag)
 }
 /** FENCE_ENABLE **/
 
-
-
-
-/** FENCE_SETBALANCEBYURI **/
-static const char *fence_setBalanceByURI(cmd_parms *cmd, void *dummy, const char *arg)
-{
-    server_rec *s = cmd->server;
-    fence_server_cfg *cfg = (fence_server_cfg *)ap_get_module_config(s->module_config,
-                                                                   &fence_module);
-
-    cfg->delayURI = atoi(arg);
-    return NULL;
-}
-/** FENCE_SETBALANCEBYURI **/
-
 /** FENCE_SETSOFTREQS **/
 static const char *fence_setSoftReqs(cmd_parms *cmd, void *dummy, const char *arg)
 {
@@ -153,6 +179,46 @@ static const char *fence_setSoftReqs(cmd_parms *cmd, void *dummy, const char *ar
 
 }
 /** FENCE_SETSOFTREQS **/
+
+/** FENCE_VhostLimit **/
+static const char *fence_setVhostLimit(cmd_parms *cmd, void *dummy, const char *arg)
+{
+    server_rec *s = cmd->server;
+    fence_server_cfg *cfg = (fence_server_cfg *)ap_get_module_config(s->module_config,
+                                                                   &fence_module);
+
+    cfg->vhostLimit = atoi(arg);
+    return NULL;
+
+}
+/** FENCE_VhostLimit **/
+
+/** FENCE_VhostUriLimit **/
+static const char *fence_setVhostUriLimit(cmd_parms *cmd, void *dummy, const char *arg)
+{
+    server_rec *s = cmd->server;
+    fence_server_cfg *cfg = (fence_server_cfg *)ap_get_module_config(s->module_config,
+                                                                   &fence_module);
+
+    cfg->vhostUriLimit = atoi(arg);
+    return NULL;
+
+}
+/** FENCE_VhostUriLimit **/
+
+/** FENCE_DelaySec **/
+static const char *fence_setDelaySec(cmd_parms *cmd, void *dummy, const char *arg)
+{
+    server_rec *s = cmd->server;
+    fence_server_cfg *cfg = (fence_server_cfg *)ap_get_module_config(s->module_config,
+                                                                   &fence_module);
+
+    cfg->delaysec = atoi(arg);
+    return NULL;
+
+}
+/** FENCE_DelaySec **/
+
 
 /** FENCE_SETHARDREQS **/
 static const char *fence_setHardReqs(cmd_parms *cmd, void *dummy, const char *arg)
@@ -239,6 +305,7 @@ static int fence_post_read_request(request_rec *r)
     
     static pid_t child_pid;
     worker_score *ws_record = apr_palloc(r->pool, sizeof *ws_record);
+    worker_score ws_temp;
     process_score *ps_record;
     int hard_slot_used = 0;
     int soft_slot_used = 0;
@@ -256,6 +323,9 @@ static int fence_post_read_request(request_rec *r)
     apr_time_t nowtime = apr_time_now();
     tu = ts = tcu = tcs = 0;
     time_t tst = 0;
+    char mitigate = 0;
+    char delay = 0;
+    int pending_vhosts,pending_vhosts_uri;
 
 
     /** INIT **/
@@ -276,107 +346,156 @@ static int fence_post_read_request(request_rec *r)
         return DECLINED;
     }
 
-    size_t buff_len;
-    int array_ptr = 0;
-    char *host_array_idx[4096];
-    int host_array_values[4096];
-    int array_found;
-
-
     if(!is_hostname_valid(r->hostname))
     {
         ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_WARNING, 0, r, "[mod_fence] Invalid Hostname: %s",r->hostname);
         return 400; //No Fancy response, invalid hostname earns simple 400 ERROR..
     }
 
-
-    /** ITERATE_CONNECTION_POOL **/
+    /** GET OUR VALUES / MORE COMPATIBLE **/
+    /*
+    pid_t cpid = getpid();
+    char _pid_found = 0;
     for (i = 0; i < server_limit; ++i) 
     {
         for (j = 0; j < thread_limit; ++j) 
         {
             ap_copy_scoreboard_worker(ws_record, i, j);
-
-            if (ws_record->access_count == 0 && (ws_record->status == SERVER_READY || ws_record->status == SERVER_DEAD)) 
-            {
-                continue;
-            }
-
             ps_record = ap_get_scoreboard_process(i);
 
-            /** VHOST MITIGATION **/
-            array_found = 0;
-            for(int cc=0;cc<array_ptr;cc++)
+            if(ps_record->pid == cpid)
             {
-            	if(!strcmp(host_array_idx[cc],ws_record->vhost))
-            	{
-            		array_found = cc;
-            		break;
-            	}
+                _pid_found = 1;
+                memcpy(ws_temp.vhost,ws_record->vhost,sizeof(ws_record->vhost));
+                memcpy(ws_temp.request,ws_record->request,sizeof(ws_record->request));
+                ap_rprintf(r,"%s == %s <br /> %d == %d <br /><br />",ws_temp.vhost,ws_record->vhost,cpid,ps_record->pid);
+                break;
             }
-
-            if(array_found)
-            {
-            	host_array_values[array_found]++;
-            }
-            else
-            {
-	            buff_len = strlen(ws_record->vhost);
-	            host_array_idx[array_ptr] = (char*)malloc(buff_len) + 1;
-            	host_array_values[array_ptr] = 1;
-	            memcpy(host_array_idx,ws_record->vhost,buff_len);
-	            host_array_idx[buff_len] = 0x00;
-	            array_ptr++;
-            }
-
-            /** VHOST MITIGATION **/
-
-
-/*          Filter or not to be? - this is the question..
-            if(!strcmp(r->DEF_IP,"127.0.0.1"))
-            {
-                continue; //DONT FILTER LOCALHOST
-            }
-*/
-            if(cfg->softReqs && !strcmp(ws_record->client, r->DEF_IP) && ( ws_record->status == SERVER_BUSY_READ || ws_record->status == SERVER_BUSY_WRITE || ws_record->status == SERVER_GRACEFUL))
-            {
-                soft_slot_used++;
-            }
-
-            if(cfg->hardReqs && (long)apr_time_sec(nowtime - ws_record->last_used) > 0 && !strcmp(ws_record->client, r->DEF_IP) && ( ws_record->status == SERVER_BUSY_READ || ws_record->status == SERVER_BUSY_WRITE || ws_record->status == SERVER_GRACEFUL))
-            {
-                hard_slot_used++;
-            }
-
-
-            if (ws_record->pid) 
-            { /* MPM sets per-worker pid and generation */
-                worker_pid = ws_record->pid;
-                worker_generation = ws_record->generation;
-            }
-            else 
-            {
-                worker_pid = ps_record->pid;
-                worker_generation = ps_record->generation;
-            }
-
-            if((long)apr_time_sec(nowtime - ws_record->last_used) >= cfg->timeout && ( ws_record->status == SERVER_BUSY_READ || ws_record->status == SERVER_BUSY_WRITE || ws_record->status == SERVER_GRACEFUL))
-            {
-                if(ps_record->pid > 0)
-                {
-                    kill(ps_record->pid, SIGKILL);
-                    ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, r->server, "[mod_fence] Stucked Child %d, Killed",ps_record->pid);
-                }
-            }
-
-        } 
+        }
+        if(_pid_found)
+        {
+            break;
+        }
     }
-    /** ITERATE_CONNECTION_POOL **/
+    */
+    /** GET OUR VALUES / MORE COMPATIBLE **/
+
+    int timeout = cfg->delaysec;
+
+    while(timeout > 0)
+    {
+      timeout--;
+      pending_vhosts = 0;
+      pending_vhosts_uri = 0;
+      delay = 0;
+      mitigate = 0;
 
 
+      apr_snprintf(ws_temp.vhost, sizeof(ws_temp.vhost), "%s:%d",r->server->server_hostname,r->connection->local_addr->port);
+      copy_request(ws_temp.request, sizeof(ws_temp.request), r);
+
+
+      /** ITERATE_CONNECTION_POOL **/
+      for (i = 0; i < server_limit; ++i) 
+      {
+          for (j = 0; j < thread_limit; ++j) 
+          {
+              ap_copy_scoreboard_worker(ws_record, i, j);
+
+              if (ws_record->access_count == 0 && (ws_record->status == SERVER_READY || ws_record->status == SERVER_DEAD)) 
+              {
+                  continue;
+              }
+
+              if(cfg->vhostLimit && !strcmp(ws_temp.vhost,ws_record->vhost))
+              {
+                  pending_vhosts++;
+              }
+
+              if(cfg->vhostUriLimit && !strcmp(ws_temp.vhost,ws_record->vhost) && !strcmp(ws_temp.request,ws_record->request))
+              {
+                  pending_vhosts_uri++;
+              }
+
+              ps_record = ap_get_scoreboard_process(i);
+
+  /*          Filter or not to be? - this is the question..
+              if(!strcmp(r->DEF_IP,"127.0.0.1"))
+              {
+                  continue; //DONT FILTER LOCALHOST
+              }
+  */
+              if(cfg->softReqs && !strcmp(ws_record->client, r->DEF_IP) && ( ws_record->status == SERVER_BUSY_READ || ws_record->status == SERVER_BUSY_WRITE || ws_record->status == SERVER_GRACEFUL))
+              {
+                  soft_slot_used++;
+              }
+
+              if(cfg->hardReqs && (long)apr_time_sec(nowtime - ws_record->last_used) > 0 && !strcmp(ws_record->client, r->DEF_IP) && ( ws_record->status == SERVER_BUSY_READ || ws_record->status == SERVER_BUSY_WRITE || ws_record->status == SERVER_GRACEFUL))
+              {
+                  hard_slot_used++;
+              }
+
+              if (ws_record->pid) 
+              { /* MPM sets per-worker pid and generation */
+                  worker_pid = ws_record->pid;
+                  worker_generation = ws_record->generation;
+              }
+              else 
+              {
+                  worker_pid = ps_record->pid;
+                  worker_generation = ps_record->generation;
+              }
+
+              if((long)apr_time_sec(nowtime - ws_record->last_used) >= cfg->timeout && ( ws_record->status == SERVER_BUSY_READ || ws_record->status == SERVER_BUSY_WRITE || ws_record->status == SERVER_GRACEFUL))
+              {
+                  if(ps_record->pid > 0)
+                  {
+                      kill(ps_record->pid, SIGKILL);
+                      ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, r->server, "[mod_fence] Stucked Child %d, Killed",ps_record->pid);
+                  }
+              }
+
+              if(cfg->vhostLimit > 0 && pending_vhosts >= cfg->vhostLimit && ws_record->status == SERVER_BUSY_WRITE)              
+              {
+                  delay = 1;
+              }
+
+              if(cfg->vhostUriLimit > 0 && pending_vhosts_uri >= cfg->vhostUriLimit && ws_record->status == SERVER_BUSY_WRITE)
+              {
+                  delay = 1;
+              }
+
+          } 
+      }
+      /** ITERATE_CONNECTION_POOL **/
+
+      if(soft_slot_used >= cfg->softReqs || hard_slot_used >= cfg->hardReqs)
+      {
+          mitigate = 1;
+          break;
+      }
+      else if(delay)
+      {
+          sleep(1); // Just delay
+      }
+      else if(delay)
+      {
+          sleep(1); // Just delay
+      }
+      else
+      {
+          break; // Nothing to do... Break.
+      }
+
+    }
+
+    if(timeout <= 0)
+    {
+        return 500; // Server Error Because of Timeout
+    }
 
     /** MITIGATE **/
-    if(soft_slot_used > cfg->softReqs || hard_slot_used > cfg->hardReqs)
+    if(mitigate)
     {
         // GIVE some weird summary about mitigation to endusers
 
@@ -482,8 +601,22 @@ static const command_rec fence_cmds[] = {
                  ""
                  ),
     AP_INIT_TAKE1(
-                 "Fence_BalanceByURI",
-                 fence_setBalanceByURI,
+                 "Fence_VhostLimit",
+                 fence_setVhostLimit,
+                 NULL,
+                 RSRC_CONF,
+                 ""
+                 ),
+    AP_INIT_TAKE1(
+                 "Fence_VhostUriLimit",
+                 fence_setVhostUriLimit,
+                 NULL,
+                 RSRC_CONF,
+                 ""
+                 ),
+    AP_INIT_TAKE1(
+                 "Fence_LimitTimeoutSec",
+                 fence_setDelaySec,
                  NULL,
                  RSRC_CONF,
                  ""
