@@ -492,6 +492,7 @@ static int fence_post_read_request(request_rec *r)
 
     if(timeout <= 0)
     {
+        ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_WARNING, 0, r, "[mod_fence] Queue Timeout, sent Server Error");
         return 500; // Server Error Because of Timeout
     }
 
