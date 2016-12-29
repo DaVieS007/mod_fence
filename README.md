@@ -11,6 +11,10 @@
 
 #### ** Currently Tested on Apache2.4 MPM_ITK / MPM_PREFORK **
 
+## Requirements:
+- [x] Apache 2.x
+- [x] mod_status and ExtendedStatus On
+
 ## Advantages:
 - [x] Very Lightweight
 - [x] Easy to use, does not need any precalculations like: maximum request/sec, burst and limit.
@@ -38,14 +42,25 @@
     Fence_ChildTimeout    3600
     Fence_MitigateSoftRequests 5
     Fence_MitigateHardRequests 15
+
+    Fence_VhostLimit 100
+    Fence_VhostUriLimit 50
+    Fence_LimitTimeoutSec 40
 </IfModule>
 ````
 
 #### Configuration Parameters
-- **Fence_Enable (On/Off)** *(Enables the module)*
-- **Fence_ChildTimeout ((numeric) seconds)** *(Sends a SIGKILL to child if not responding within the time)*
-- **Fence_MitigateSoftRequests ((numeric) requests)** *(Mitigate a single IP when stalled >= (1s) requests reach this limit at same time)*
-- **Fence_MitigateHardRequests ((numeric) requests)** *(Mitigate a single IP when any requests reach this limit at same time)*
+
+- Fence_Enable -> On/Off
+- Use 0 to disable each feature
+- Fence_ChildTimeout (in Seconds) to kill unrepsonsible slots (zombie)
+- Fence_MitigateSoftRequests Number of requests allowed from one IP any more attempts refused
+- Fence_MitigateHardRequests Number of requests allowed from one IP that Pending over 1 seconds any more attempts refused
+
+- Fence_VhostLimit Number of requests per VirtualHosts allowed any others being queue
+- Fence_VhostUriLimit Number of requests per VirtualHosts and same URI any others being queue
+- Fence_LimitTimeoutSec Sends Server Error when Vhost or VhostUri limit timeouts
+
 
 #### In case of Apache behind proxy
 ###### When Apache behind the proxy its recommended to resolv true IPs through X-Forwarded-For header. There are already some modules to doing that, like mod_rpaf2
