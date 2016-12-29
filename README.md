@@ -52,11 +52,10 @@
 #### Configuration Parameters
 
 - Fence_Enable -> On/Off
-- Use 0 to disable each feature
+- **Use 0 to disable each feature**
 - Fence_ChildTimeout (in Seconds) to kill unrepsonsible slots (zombie)
 - Fence_MitigateSoftRequests Number of requests allowed from one IP any more attempts refused
 - Fence_MitigateHardRequests Number of requests allowed from one IP that Pending over 1 seconds any more attempts refused
-
 - Fence_VhostLimit Number of requests per VirtualHosts allowed any others being queue
 - Fence_VhostUriLimit Number of requests per VirtualHosts and same URI any others being queue
 - Fence_LimitTimeoutSec Sends Server Error when Vhost or VhostUri limit timeouts
