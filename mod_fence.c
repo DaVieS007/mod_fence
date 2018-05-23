@@ -426,9 +426,10 @@ static int fence_post_read_request(request_rec *r)
 
         ap_rputs("</body></html>",r);
 
-        ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_WARNING, 0, r, "[mod_fence] Mitigation Triggered, dropping request.");
+        ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_WARNING, 0, r, "[mod_fence] Mitigation Triggered while accessing to the VHost %s, dropping request.", r->hostname);
 
-	r->status = 200;
+        /** RETURNS HTTP CODE 429 : Too Many Request **/
+	r->status = 429;
         ap_finalize_request_protocol(r);
 //        r->output_filters = r->proto_output_filters;
 //        apr_hook_deregister_all(); //DONT PASS THIS REQUEST TOWARDS
