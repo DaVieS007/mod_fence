@@ -363,18 +363,20 @@ static int fence_post_read_request(request_rec *r)
 
         ap_set_content_type(r, "text/html");
 
-        ap_rputs("<html><head>"
+        ap_rputs("<!DOCTYPE html><html><head>"
         "<meta name='robots' content='NOINDEX, NOFOLLOW'>"
         "</meta><title>mod_fence / Request Terminated</title>"
         "<style>td { border: 1px solid gray; padding: 10px; } </style>"
         "</head>"
-        "<body style='margin: 20px; padding: 20px; color: #333;'>"
-        "<h1>Your request terminated due to Auto-Mitigation.</h1>"
-        "<br /><br />"
-        "You are reached maximum-allowed request limit at the same time and it's seems like non-usual activity.<br /><br />"
-        "To protect the service you suffered mitigation on your connection rate.<br />"
-        "Please refer the table below of your recent activity that seems currently abnormal<br /><br />"
-        "In any other case please try again later or you can refresh by clicking <a href='' style='color: #333;'><b>here</b></a>.<br /><br />",r);
+        "<body style='margin: 20px; color: #333;'>"
+        "<h1>Your request has been terminated due to auto-mitigation</h1>"
+        "<br />"
+        "You have reached the concurrent request limit, it seems like non-usual activity.<br /><br />"
+        "To protect the service, your connection rate has been limited.<br />", r);
+
+#ifdef HAVE_VERBOSE_REPORT
+        ap_rputs("Please refer the table below of your recent activity that seems currently abnormal<br /><br />"
+        "In any other case please try again later or you can refresh by clicking <a href='' style='color: #333;'><b>here</b></a>.<br /><br />", r);
 
         /** SOME DETAILS **/
         ap_rputs("<table style='border: 1px solid gray; width: 80%;'>",r);
@@ -409,11 +411,13 @@ static int fence_post_read_request(request_rec *r)
         }
         ap_rputs("</table>",r);
         /** SOME DETAILS **/
-
+#endif
+#ifdef HAVE_SIGNATURE
         ap_rputs(ap_psignature("<br /><br /><hr>\n",r),r);
         ap_rputs("<i>",r);
         ap_rputs(VERSION,r);
         ap_rputs("</i>",r);
+#endif
 
         ap_rputs("</body></html>",r);
 
