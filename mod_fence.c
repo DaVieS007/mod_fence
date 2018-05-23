@@ -181,6 +181,11 @@ static char is_hostname_valid(const char *hostname)
   }
   /** AVOID BUFFER OVERFLOW **/
 
+  // The hostname cannot start with these chars
+  if(hostname[0] == ':' || hostname[0] == '_' || hostname[0] == '.' || hostname[0] == '[' || hostname[0] == ']') {
+    return 0;
+  }
+
   for(i = 0; i < len; i++)
   {
     found = 0;
