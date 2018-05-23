@@ -164,7 +164,7 @@ static const char *fence_settimeout(cmd_parms *cmd, void *dummy, const char *arg
 /** FENCE_SETTIMTEOUT **/
 
 /** IS_HOSTNAME_VALID **/
-char is_hostname_valid(const char *hostname)
+static char is_hostname_valid(const char *hostname)
 {
   char ret = 1, found = 0;
   size_t i, i2, len, len2;
@@ -259,7 +259,7 @@ static int fence_post_read_request(request_rec *r)
         return DECLINED;
     }
 
-    if(!is_hostname_valid(r->hostname))
+    if(r->hostname && !is_hostname_valid(r->hostname))
     {
         ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_WARNING, 0, r, "[mod_fence] Invalid Hostname: %s",r->hostname);
         return 400; //No Fancy response, invalid hostname earns simple 400 ERROR..
