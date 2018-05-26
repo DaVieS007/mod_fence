@@ -164,7 +164,7 @@ static const char *fence_settimeout(cmd_parms *cmd, void *dummy, const char *arg
 /** FENCE_SETTIMTEOUT **/
 
 /** IS_HOSTNAME_VALID **/
-char is_hostname_valid(const char *hostname)
+static char is_hostname_valid(const char *hostname)
 {
   char ret = 1, found = 0;
   size_t i, i2, len, len2;
@@ -180,6 +180,11 @@ char is_hostname_valid(const char *hostname)
     return 0;
   }
   /** AVOID BUFFER OVERFLOW **/
+
+  // The hostname cannot start with these chars
+  if(hostname[0] == ':' || hostname[0] == '_' || hostname[0] == '.' || hostname[0] == '[' || hostname[0] == ']') {
+    return 0;
+  }
 
   for(i = 0; i < len; i++)
   {
@@ -259,7 +264,7 @@ static int fence_post_read_request(request_rec *r)
         return DECLINED;
     }
 
-    if(!is_hostname_valid(r->hostname))
+    if(r->hostname && !is_hostname_valid(r->hostname))
     {
         ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_WARNING, 0, r, "[mod_fence] Invalid Hostname: %s",r->hostname);
         return 400; //No Fancy response, invalid hostname earns simple 400 ERROR..
@@ -363,18 +368,20 @@ static int fence_post_read_request(request_rec *r)
 
         ap_set_content_type(r, "text/html");
 
-        ap_rputs("<html><head>"
+        ap_rputs("<!DOCTYPE html><html><head>"
         "<meta name='robots' content='NOINDEX, NOFOLLOW'>"
         "</meta><title>mod_fence / Request Terminated</title>"
         "<style>td { border: 1px solid gray; padding: 10px; } </style>"
         "</head>"
-        "<body style='margin: 20px; padding: 20px; color: #333;'>"
-        "<h1>Your request terminated due to Auto-Mitigation.</h1>"
-        "<br /><br />"
-        "You are reached maximum-allowed request limit at the same time and it's seems like non-usual activity.<br /><br />"
-        "To protect the service you suffered mitigation on your connection rate.<br />"
-        "Please refer the table below of your recent activity that seems currently abnormal<br /><br />"
-        "In any other case please try again later or you can refresh by clicking <a href='' style='color: #333;'><b>here</b></a>.<br /><br />",r);
+        "<body style='margin: 20px; color: #333;'>"
+        "<h1>Your request has been terminated due to auto-mitigation</h1>"
+        "<br />"
+        "You have reached the concurrent request limit, it seems like non-usual activity.<br /><br />"
+        "To protect the service, your connection rate has been limited.<br />", r);
+
+#ifdef HAVE_VERBOSE_REPORT
+        ap_rputs("Please refer the table below of your recent activity that seems currently abnormal<br /><br />"
+        "In any other case please try again later or you can refresh by clicking <a href='' style='color: #333;'><b>here</b></a>.<br /><br />", r);
 
         /** SOME DETAILS **/
         ap_rputs("<table style='border: 1px solid gray; width: 80%;'>",r);
@@ -409,17 +416,20 @@ static int fence_post_read_request(request_rec *r)
         }
         ap_rputs("</table>",r);
         /** SOME DETAILS **/
-
+#endif
+#ifdef HAVE_SIGNATURE
         ap_rputs(ap_psignature("<br /><br /><hr>\n",r),r);
         ap_rputs("<i>",r);
         ap_rputs(VERSION,r);
         ap_rputs("</i>",r);
+#endif
 
         ap_rputs("</body></html>",r);
 
-        ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_WARNING, 0, r, "[mod_fence] Mitigation Triggered, dropping request.");
+        ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_WARNING, 0, r, "[mod_fence] Mitigation Triggered while accessing to the VHost %s, dropping request.", r->hostname);
 
-	r->status = 200;
+        /** RETURNS HTTP CODE 429 : Too Many Request **/
+	r->status = 429;
         ap_finalize_request_protocol(r);
 //        r->output_filters = r->proto_output_filters;
 //        apr_hook_deregister_all(); //DONT PASS THIS REQUEST TOWARDS
