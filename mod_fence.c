@@ -429,7 +429,7 @@ static int fence_post_read_request(request_rec *r)
 
         ap_rputs("</body></html>",r);
 
-        ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_WARNING, 0, r, "[mod_fence] Mitigation Triggered while accessing to the VHost %s, dropping request.", r->hostname);
+        ap_log_rerror(APLOG_MARK, APLOG_NOERRNO|APLOG_WARNING, 0, r, "[mod_fence] Mitigation Triggered while accessing to the VHost %s (%d soft requests and %d hard requests), dropping request.", r->hostname, soft_slot_used, hard_slot_used);
 
         /** RETURNS HTTP CODE 429 : Too Many Request **/
 	r->status = 429;
