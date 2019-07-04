@@ -294,12 +294,12 @@ static int fence_post_read_request(request_rec *r)
                 continue; //DONT FILTER LOCALHOST
             }
 */
-            if(cfg->softReqs && !strcmp(ws_record->client, r->DEF_IP) && ( ws_record->status == SERVER_BUSY_READ || ws_record->status == SERVER_BUSY_WRITE || ws_record->status == SERVER_GRACEFUL))
+            if(cfg->softReqs && (long)apr_time_sec(nowtime - ws_record->last_used) > 0 && !strcmp(ws_record->client, r->DEF_IP) && ( ws_record->status == SERVER_BUSY_READ || ws_record->status == SERVER_BUSY_WRITE || ws_record->status == SERVER_GRACEFUL))
             {
                 soft_slot_used++;
             }
 
-            if(cfg->hardReqs && (long)apr_time_sec(nowtime - ws_record->last_used) > 0 && !strcmp(ws_record->client, r->DEF_IP) && ( ws_record->status == SERVER_BUSY_READ || ws_record->status == SERVER_BUSY_WRITE || ws_record->status == SERVER_GRACEFUL))
+            if(cfg->hardReqs && !strcmp(ws_record->client, r->DEF_IP) && ( ws_record->status == SERVER_BUSY_READ || ws_record->status == SERVER_BUSY_WRITE || ws_record->status == SERVER_GRACEFUL))
             {
                 hard_slot_used++;
             }
